@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <div id="status"></div>
+    <div id="app"></div>
+    <style>
+      .cell {
+        width: 2rem;
+        height: 2rem;
+        box-sizing: border-box;
+        font-size: 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+      }
+      .prop {
+        font-size: 0.7rem;
+        color: gray;
+      }
+      .cell > span {
+        -webkit-user-select: none; /* Safari */
+        -ms-user-select: none; /* IE 10 and IE 11 */
+        user-select: none; /* Standard syntax */
+      }
+      .best {
+        background-color: lightgreen !important;
+      }
+      .should_flag {
+        background-color: lightcoral !important;
+      }
+      .closed {
+        border: 3px white;
+        background: #e5e2e2;
+        border-style: outset;
+      }
+      .opened {
+        border: #d9d9d9 1px solid;
+      }
+      #app {
+        display: inline-grid;
+        border: 1rem #dddcdc;
+        border-style: inset;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import init, {
+        Game,
+        Position,
+        GameStatus,
+        CellInteraction,
+        AIPlayer,
+      } from "./pkg/wasm_test.js";
+      const colors = {
+        1: "blue",
+        2: "green",
+        3: "red",
+        4: "darkblue",
+        5: "darkred",
+        6: "teal",
+        7: "black",
+        8: "gray",
+      };
+      async function render(game, ai_player) {
+        let best_play = ai_player.best_play();
+        let should_flag = ai_player.should_flag();
+        let app = document.getElementById("app");
+        let status = document.getElementById("status");
+        app.innerHTML = "";
+        status.innerHTML = "";
+        status.append(GameStatus[game.status]);
+
+        game.get_grid_js_value().forEach((row, y) => {
+          row.forEach((cell, x) => {
+            let html = document.createElement("div");
+            html.classList.add("cell");
+            if (best_play && best_play.x == x && best_play.y == y) {
+              html.classList.add("best");
+            }
+            if (should_flag && should_flag.x == x && should_flag.y == y) {
+              html.classList.add("should_flag");
+            }
+
+            if (
+              cell.interaction == CellInteraction.Opened &&
+              !cell.has_mine()
+            ) {
+              if (cell.counter() > 0) {
+                let number = document.createElement("span");
+                number.append(cell.counter());
+                number.style.color = colors[cell.counter()];
+
+                html.append(number);
+              }
+              html.classList.add("opened");
+            } else if (
+              cell.interaction == CellInteraction.Opened &&
+              cell.has_mine()
+            ) {
+              let mine = document.createElement("span");
+              mine.append("💣");
+              html.append(mine);
+              html.classList.add("opened");
+            } else if (cell.interaction == CellInteraction.Closed) {
+              html.classList.add("closed");
+              const prop = document.createElement("small");
+              prop.classList.add("prop");
+              if (ai_player.get_matrix_js_value()[y][x] !== undefined) {
+                prop.append(ai_player.get_matrix_js_value()[y][x].toFixed(2));
+              }
+
+              if (game.status == GameStatus.OnGoing) {
+                html.addEventListener("click", (event) => {
+                  let position = new Position(x, y);
+                  game.open(position);
+                  ai_player.calculate_matrix(game);
+                  render(game, ai_player);
+                });
+                html.addEventListener("contextmenu", (event) => {
+                  event.preventDefault();
+                  let position = new Position(x, y);
+                  game.flag(position);
+                  ai_player.calculate_matrix(game);
+                  render(game, ai_player);
+                });
+              }
+
+              html.append(prop);
+            } else if (cell.interaction == CellInteraction.Flagged) {
+              let flag = document.createElement("span");
+              flag.append("🚩");
+              flag.addEventListener("contextmenu", (event) => {
+                event.preventDefault();
+                let position = new Position(x, y);
+                game.unflag(position);
+                render(game, ai_player);
+              });
+              html.append(flag);
+              html.classList.add("closed");
+            }
+            app.append(html);
+          });
+        });
+      }
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+      (async function () {
+        await init();
+        let width = 50;
+        let height = 50;
+        let app = document.getElementById("app");
+        app.style.gridTemplate = `repeat(${height}, 2rem) / repeat(${width}, 2rem)`;
+
+        let game = new Game(width, height, 0.09);
+        let ai_player = new AIPlayer(game);
+        // let position = new Position(0, 0);
+        // game.open(position);
+        await render(game, ai_player);
+        let best_play = null;
+        let should_flag = null;
+        while (game.status == GameStatus.OnGoing) {
+          ai_player.calculate_matrix(game);
+          await sleep(100);
+          best_play = ai_player.best_play();
+          should_flag = ai_player.should_flag();
+          if (should_flag) {
+            game.flag(should_flag);
+          }
+          if (best_play) {
+            game.open(best_play);
+          }
+          if (!best_play && !should_flag) {
+            // await sleep(1000);
+            game.open_random();
+          }
+          await render(game, ai_player);
+        }
+      })();
+    </script>
+  </body>
+</html>
